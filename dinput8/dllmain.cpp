@@ -6,7 +6,7 @@
 #include "method.h"
 #include <clocale>
 #include <format>
-
+#include "dinput8.h"
 /*
 DirectInput8Create
 DllCanUnloadNow
@@ -31,6 +31,7 @@ DWORD64 RCX, DIstanceOffsetAddress;
  * @note 通过特征码定位并计算RCX寄存器的值
  */
 static bool GetRcxAddress() {
+
 	// RCX特征码定位到地址
 	DWORD64 rcxByteCode;
 	rcxByteCode = method::LocateSignature(client.hProcess, RCX_SIGNATURE_CODE, client.startAddress, client.endAddress, 0);
@@ -42,20 +43,20 @@ static bool GetRcxAddress() {
 		return false;
 	}
 
-	// 定位到mov指令地址（特征码地址+2）
-	DWORD64 movInstructionAddr = rcxByteCode + 0x2;
+	// 定位到mov指令地址
+	DWORD64 movInstructionAddr = rcxByteCode + 0x3;
 	method::PrintToConsole(L"[信息] RCX-MOV指令地址 0x%llX", movInstructionAddr);
 
 	// 读取相对偏移量
 	INT32 ripRelativeOffset = 0;
-	if (!ReadProcessMemory(client.hProcess, (LPCVOID)(movInstructionAddr + 3), &ripRelativeOffset, sizeof(ripRelativeOffset), 0)) {
+	if (!ReadProcessMemory(client.hProcess, (LPCVOID)(movInstructionAddr), &ripRelativeOffset, sizeof(ripRelativeOffset), 0)) {
 		method::PrintToConsole(L"[信息] RCX-读取偏移量失败");
 		return false;
 	}
 	method::PrintToConsole(L"[信息] RCX-读取到的RIP相对偏移量 0x%X", ripRelativeOffset);
 
 	// 计算下一条指令地址（当前指令地址+7字节）
-	DWORD64 nextInstructionAddr = movInstructionAddr + 7;
+	DWORD64 nextInstructionAddr = rcxByteCode + 0x7;
 	method::PrintToConsole(L"[信息] RCX-下一条指令地址 0x%llX", nextInstructionAddr);
 
 	// 计算目标地址
@@ -349,7 +350,7 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
 	method::PrintToConsole(L"[信息] 进程ID: %d", client.pid);
 	method::PrintToConsole(L"[信息] 进程句柄: %d", client.hProcess);
 	//子类化窗口 自定义处理消息
-	client.lpPrevWndFunc = (WNDPROC)SetWindowLongPtrW(client.hWnd, GWL_WNDPROC, (LRESULT)NewProc);
+	client.lpPrevWndFunc = (WNDPROC)SetWindowLongPtrW(client.hWnd, GWLP_WNDPROC, (LRESULT)NewProc);
 	if (client.lpPrevWndFunc == NULL)
 	{
 		//无法接管消息 输出错误结果
@@ -410,11 +411,7 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
 	return true;
 }
 
-// 原始函数指针类型
-HMODULE dllHMoudle;
-typedef void (*OriginalFunctionType)();
-OriginalFunctionType DirectInput8, DllCanUnload, DllGetClass, DllRegister, DllUnregister, GetdfDIJoy;
-std::wstring fixedPath;
+
 /**
  * @brief DLL入口函数
  * @param hModule DLL模块句柄
@@ -435,52 +432,23 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReser
 	{
 	case DLL_PROCESS_ATTACH:
 	{
+		Init();
 		//从配置文件判断是否需要启动控制台 1 = 开启 0 = 关闭
 		int OpenConsole = method::GetIntPrivateProfile(L"Config", L"OpenConsole", 0);
+		Console = (OpenConsole == 1);
 		if (OpenConsole == 1)
 		{
 			method::RedireceConsole();
 		}
-		// 获取系统system32目录路径
-		wchar_t systemDir[MAX_PATH] = { 0 };
-		if (GetSystemDirectory(systemDir, MAX_PATH) == 0)
-		{
-			method::PrintToConsole(L"[错误] 获取系统目录失败，错误代码: %d", GetLastError());
-			fixedPath = L"C:\\Windows\\System32\\dinput8.dll";
-			method::PrintToConsole(L"[警告] 使用默认路径: %s", fixedPath.c_str());
-		}
-		else
-		{
-			// 安全拼接路径
-			if (wcsnlen_s(systemDir, MAX_PATH) + wcslen(L"\\dinput8.dll") >= MAX_PATH) {
-				method::PrintToConsole(L"[错误] 系统目录路径过长");
-				return false;
-			}
-			fixedPath = std::wstring(systemDir) + L"\\dinput8.dll";
-		}
-		if (GetFileAttributes(fixedPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-			method::PrintToConsole(L"[错误] dinput8.dll不存在于: %s (错误代码: %d)", fixedPath.c_str(), GetLastError());
-			return false;
-		}
-		dllHMoudle = LoadLibrary(fixedPath.c_str());// 加载目标 DLL
-		if (dllHMoudle == NULL)
-		{
-			method::PrintToConsole(L"[错误] 加载dinput8.dll失败 (路径: %s, 错误代码: %d)", fixedPath.c_str(), GetLastError());
-			return false;
-		}
-		DirectInput8 = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DirectInput8Create"));
-		DllCanUnload = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
-		DllGetClass = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
-		DllRegister = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
-		DllUnregister = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
-		GetdfDIJoy = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
-		method::PrintToConsole(L"[成功] 劫持dinput8.dll: %s", fixedPath.c_str());
+		//method::PrintToConsole(L"[成功] 劫持dinput8.dll: %s", fixedPath.c_str());
+		method::PrintToConsole(L"[成功] 劫持dinput8.dll");
 		CreateThread(NULL, NULL, Initialize, NULL, NULL, NULL);
 		return true;
 	}
 	break;
 	case DLL_PROCESS_DETACH:
 	{
+		Free();
 		// 释放DC
 		if (client.hDcid != 0)
 		{
@@ -498,36 +466,41 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReser
 	return TRUE;
 }
 
-//转发劫持的函数到原始DLL
-#define Direct DirectInput8Create
-EXTERN_C __declspec(dllexport)void  Direct() {
-	DirectInput8();
-	return;
-}
-//#define UnLoad DllCanUnloadNow
-#pragma comment(linker, "/EXPORT:DllCanUnloadNow=Dilraba,PRIVATE")
-EXTERN_C __declspec(dllexport)void  Dilraba() {
-	DllCanUnload();
-	return;
-}
-//#define GetClass DllGetClassObject
-#pragma comment(linker, "/EXPORT:DllGetClassObject=Kiku,PRIVATE")
-EXTERN_C __declspec(dllexport)void  Kiku() {
-	DllGetClass();
-	return;
-}
-#define RegServer DllRegisterServer
-EXTERN_C __declspec(dllexport)void  RegServer() {
-	DllRegister();
-	return;
-}
-#define UnServer DllUnregisterServer
-EXTERN_C __declspec(dllexport)void  UnServer() {
-	DllUnregister();
-	return;
-}
-#define Joystick GetdfDIJoystick
-EXTERN_C __declspec(dllexport)void  Joystick() {
-	GetdfDIJoy();
-	return;
-}
+//// 原始函数指针类型
+//HMODULE dllHMoudle;
+//typedef void (*OriginalFunctionType)();
+//OriginalFunctionType DirectInput8, DllCanUnload, DllGetClass, DllRegister, DllUnregister, GetdfDIJoy;
+//std::wstring fixedPath;
+//// 获取系统system32目录路径
+//wchar_t systemDir[MAX_PATH] = { 0 };
+//if (GetSystemDirectory(systemDir, MAX_PATH) == 0)
+//{
+//	method::PrintToConsole(L"[错误] 获取系统目录失败，错误代码: %d", GetLastError());
+//	fixedPath = L"C:\\Windows\\System32\\dinput8.dll";
+//	method::PrintToConsole(L"[警告] 使用默认路径: %s", fixedPath.c_str());
+//}
+//else
+//{
+//	// 安全拼接路径
+//	if (wcsnlen_s(systemDir, MAX_PATH) + wcslen(L"\\dinput8.dll") >= MAX_PATH) {
+//		method::PrintToConsole(L"[错误] 系统目录路径过长");
+//		return false;
+//	}
+//	fixedPath = std::wstring(systemDir) + L"\\dinput8.dll";
+//}
+//if (GetFileAttributes(fixedPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+//	method::PrintToConsole(L"[错误] dinput8.dll不存在于: %s (错误代码: %d)", fixedPath.c_str(), GetLastError());
+//	return false;
+//}
+//dllHMoudle = LoadLibrary(fixedPath.c_str());// 加载目标 DLL
+//if (dllHMoudle == NULL)
+//{
+//	method::PrintToConsole(L"[错误] 加载dinput8.dll失败 (路径: %s, 错误代码: %d)", fixedPath.c_str(), GetLastError());
+//	return false;
+//}
+//DirectInput8 = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DirectInput8Create"));
+//DllCanUnload = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
+//DllGetClass = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
+//DllRegister = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
+//DllUnregister = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));
+//GetdfDIJoy = reinterpret_cast<OriginalFunctionType>(GetProcAddress(dllHMoudle, "DllCanUnloadNow"));

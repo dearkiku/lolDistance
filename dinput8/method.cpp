@@ -39,26 +39,30 @@ void method::RedireceConsole()
  */
 void method::PrintToConsole(const wchar_t* format, ...)
 {
-    // 创建一个可变参数列表
-    va_list args;
-    va_start(args, format);
+	if (!Console)
+	{
+		return;
+	}
+	// 创建一个可变参数列表
+	va_list args;
+	va_start(args, format);
 
-    // 计算格式化字符串后的长度
-    int length = _vscwprintf(format, args) + 5 + 1; // 添加 5 个字符的长度用于存储标记
+	// 计算格式化字符串后的长度
+	int length = _vscwprintf(format, args) + 5 + 1; // 添加 5 个字符的长度用于存储标记
 
-    // 分配缓冲区来保存格式化后的字符串
-    wchar_t* buffer = new wchar_t[length];
+	// 分配缓冲区来保存格式化后的字符串
+	wchar_t* buffer = new wchar_t[length];
 
-    // 格式化字符串并添加标记
-    swprintf(buffer, length, L"[101] ");
-    vswprintf(buffer + 5, length - 5, format, args);
+	// 格式化字符串并添加标记
+	swprintf(buffer, length, L"[101] ");
+	vswprintf(buffer + 5, length - 5, format, args);
 
-    // 将格式化后的字符串输出到控制台
-    wprintf(L"%s\n", buffer);
+	// 将格式化后的字符串输出到控制台
+	wprintf(L"%s\n", buffer);
 
-    // 释放缓冲区和可变参数列表
-    delete[] buffer;
-    va_end(args);
+	// 释放缓冲区和可变参数列表
+	delete[] buffer;
+	va_end(args);
 }
 
 std::pair<DWORD64, DWORD64> method::GetModuleAddressRange(HMODULE hModule) {

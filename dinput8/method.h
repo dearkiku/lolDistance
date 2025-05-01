@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 
-#define GWL_WNDPROC			(-4)
+inline BOOL Console = false;
 static HANDLE hConsole = nullptr;
 static std::wstring runPath;
 /*

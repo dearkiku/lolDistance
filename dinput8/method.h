@@ -15,6 +15,7 @@ struct clientInfo {
 };
 
 namespace method {
+
 	/**
 	* @brief 打印宽字符串到控制台
 	* @param format 带L前缀的格式化字符串
@@ -35,6 +36,8 @@ namespace method {
 	* @details 读取配置文件中的DLL路径，如果DLL存在则加载，否则输出警告信息
 	*/
 	void LoadDll();
+
+	void exit();
 	
 	/*
 	* @brief 获取模块地址范围
@@ -50,7 +53,7 @@ namespace method {
 	* @param size 数组大小
 	* @return 如果两个数组相同或特征码为模糊匹配(0xFF)，返回TRUE；否则返回FALSE
 	*/
-	BOOL CompareArrays(const BYTE* a, const BYTE* b, DWORD size);
+	BOOL CompareArrays(const BYTE* a, const BYTE* b, size_t size);
 	
 	/*
 	* @brief 将特征码字符串转换为字节数组
@@ -60,7 +63,7 @@ namespace method {
 	* @return 转换后的字节数组长度
 	* @note 忽略空格和??，将??转换为0xFF
 	*/	
-	int ConvertStringToByteArray(const std::string& featureCode, unsigned char* outBuffer, int maxSize);
+	size_t ConvertStringToByteArray(const std::string& featureCode, unsigned char* outBuffer, size_t maxSize);
 	
 	/*
 	* @brief 在指定的内存范围内查找特征码

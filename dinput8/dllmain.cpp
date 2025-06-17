@@ -4,18 +4,24 @@
 // ===================
 #include <string>
 #include <vector>
-#include <clocale>
 // ===================
 #include "dllmain.h"
 #include "method.h"
 #include "dinput8.h"
+#include <chrono>
+#include <thread>
+
+// #define _WIN32_WINNT = 0x0600			// 设置Windows版本为Vista及以上
 
 // 客户端结构
 clientInfo client;
+//当前视距大小
+float distanceValue;
+DWORD64 RCX, DIstanceOffsetAddress;
+// 计时器
+PTP_TIMER g_timer = nullptr;
 //设置一个自定义消息，如果接收到这个消息就执行自定义代码
 // UINT customMsg;
-float distanceValue;//当前视距大小
-DWORD64 RCX, DIstanceOffsetAddress;
 
 /**
  * @brief 获取RCX寄存器的基地址
@@ -27,8 +33,9 @@ static bool GetRcxAddress() {
 	// RCX特征码定位到地址
 	DWORD64 rcxByteCode;
 	rcxByteCode = method::LocateSignature(client.hProcess, RCX_SIGNATURE_CODE, client.startAddress, client.endAddress, 0);
+	
 	if (rcxByteCode) {
-		method::PrintToConsole(L"[信息] RCX-特征码搜索到的地址 0x%llX", rcxByteCode);
+		method::PrintToConsole(L"[信息] RCX-特征码搜索到的地址：0x%llX", rcxByteCode);
 	}
 	else {
 		method::PrintToConsole(L"[信息] RCX-特征码没读取到地址，可能特征码已过期");
@@ -37,15 +44,15 @@ static bool GetRcxAddress() {
 
 	// 定位到mov指令地址
 	DWORD64 movInstructionAddr = rcxByteCode + 0x3;
-	method::PrintToConsole(L"[信息] RCX-MOV指令地址 0x%llX", movInstructionAddr);
+	method::PrintToConsole(L"[信息] 定位-> mov rcx,[0x%llX] ", movInstructionAddr);
 
-	// 读取相对偏移量
+	// 读取相对偏移量 RIP
 	INT32 ripRelativeOffset = 0;
 	if (!ReadProcessMemory(client.hProcess, (LPCVOID)(movInstructionAddr), &ripRelativeOffset, sizeof(ripRelativeOffset), 0)) {
-		method::PrintToConsole(L"[信息] RCX-读取偏移量失败");
+		method::PrintToConsole(L"[信息] RCX-读取相对偏移量失败");
 		return false;
 	}
-	method::PrintToConsole(L"[信息] RCX-读取到的RIP相对偏移量 0x%X", ripRelativeOffset);
+	method::PrintToConsole(L"[信息] RCX-读取到的相对偏移量 0x%X", ripRelativeOffset);
 
 	// 计算下一条指令地址（当前指令地址+7字节）
 	DWORD64 nextInstructionAddr = rcxByteCode + 0x7;
@@ -104,10 +111,10 @@ static bool GetRcxAddress() {
  //}
 
  /**
-  * @brief 读取视距值
-  * @param type 视距类型 (0=当前, 1=最大, 2=最小)
-  * @return 当前数值
-  */
+* @brief 读取视距值
+* @param type 视距类型 (0=当前, 1=最大, 2=最小)
+* @return 当前数值
+*/
   //static float GetDistanceValue(int type) {
   //	float value = 0.0f;
   //	DWORD64 offset;
@@ -130,12 +137,12 @@ static bool GetRcxAddress() {
   //	return value;
   //}
 
-  /**
-   * @brief 批量写入视距数据
-   * @param distanceValue 基础视距值
-   * @note 会同时设置最小视距、最大视距(基础值 + ZOOM_VALUE)和当前视距
-   */
-static void WriteInsightData(float value)
+/**
+* @brief 批量写入视距数据
+* @param distanceValue 基础视距值
+* @note 会同时设置最小视距、最大视距和当前视距
+*/
+static void WriteInsightData(const float& value)
 {
 	//最小视距限制
 	if (!WriteProcessMemory(client.hProcess, LPVOID(DIstanceOffsetAddress + RCX_OFFSET_MIN), &value, sizeof(value), 0))
@@ -147,7 +154,7 @@ static void WriteInsightData(float value)
 		method::PrintToConsole(L"[成功] 最小视距限制修改成功：", value);
 	}
 	// 将最大视距限制改为传参 + ZOOM_VALUE
-	float maxDistance = value + ZOOM_VALUE;
+	float maxDistance = value;// +ZOOM_VALUE;
 	if (!WriteProcessMemory(client.hProcess, LPVOID(DIstanceOffsetAddress + RCX_OFFSET_MAX), &maxDistance, sizeof(maxDistance), 0))
 	{
 		method::PrintToConsole(L"[错误] 最大视距限制修改失败 (错误代码: %d)", GetLastError());
@@ -193,13 +200,14 @@ static void WriteInsightData(float value)
 static LRESULT APIENTRY NewProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	//https://learn.microsoft.com/zh-cn/windows/win32/inputdev/virtual-key-codes 虚拟键码
-	if (uMsg == 261 && wParam == 115)
+	if (uMsg == WM_SYSKEYUP && wParam == VK_F4)
 	{
-		// ALT + F4 立即终止程序（如果是云顶之弈或斗魂竞技场，需要点击退出游戏才行，不然就要重新连接或者等到所有人的游戏都结束才会退出游戏。
-		method::PrintToConsole(L"[信息] Alt + F4 -> abort");
+		// ALT + F4 -> 立即终止程序
+		method::PrintToConsole(L"[信息] Alt + F4 -> ExitProcess(1)");
 		method::PrintToConsole(L"[信息] 如果是云顶之弈或斗魂竞技场，需要点击退出游戏才行，不然就要等所有人的游戏都结束才能重新开始");
-		//exit(0);  //退出
-		abort();    //强制退出
+		// exit(0);		// 正常终止程序，返回退出码
+		// abort();		// 触发异常终止，通常生成 SIGABRT 信号，在 Windows 上表现为崩溃
+		ExitProcess(1); // 强制终止当前进程（包括所有线程），并返回退出码 
 		return TRUE;
 	}
 	// 按下键盘
@@ -210,23 +218,23 @@ static LRESULT APIENTRY NewProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 		{
 			switch (wParam)
 			{
-			case 0x5A://Z
+			case 'Z':
 			{
 				method::PrintToConsole(L"[信息] CTRL + Z 扩大视距");
 				distanceValue += ZOOM_VALUE;
 				WriteInsightData(distanceValue);
 				return TRUE;
 			}
-			// break;
-			case 0x58://X
+			break;
+			case 'X':
 			{
 				method::PrintToConsole(L"[信息] CTRL + X 缩小视距");
 				distanceValue -= ZOOM_VALUE;
 				WriteInsightData(distanceValue);
 				return TRUE;
 			}
-			// break;
-			case 0x53://S
+			break;
+			case 'S':
 			{
 				// 使用 C++20的新特性 格式化float // 生成的文件体积太大，已废弃
 				//std::wstring wideStr = std::format(L"{:.2f}", distanceValue);
@@ -242,7 +250,21 @@ static LRESULT APIENTRY NewProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 				}
 				return TRUE;
 			}
-			// break;
+			break;
+			case VK_HOME:
+			{
+				if (RCX != NULL)
+				{
+					break;
+				}
+				if (!GetRcxAddress())
+				{
+					break;
+				}
+				// 修改视距
+				WriteInsightData(distanceValue);
+			}
+			break;
 			default:
 				break;
 			}
@@ -252,6 +274,7 @@ static LRESULT APIENTRY NewProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 	{
 		if (GetKeyState(VK_CONTROL) & 0x8000)//如果按下了CTRL键
 		{
+			// 获取滚轮滚动的值
 			int delta = GET_WHEEL_DELTA_WPARAM(wParam);
 			// 鼠标向上滚动 增加视距（符合游戏中的方式: 向上滚动靠近英雄 向下滚动远离英雄）
 			if (delta < 0)
@@ -268,12 +291,10 @@ static LRESULT APIENTRY NewProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 				distanceValue -= ZOOM_VALUE;
 				WriteInsightData(distanceValue);
 			}
-
 		}
 	}
 	return CallWindowProc(client.lpPrevWndFunc, hWnd, uMsg, wParam, lParam);
 }
-
 
 /**
  * @brief 初始化线程函数
@@ -290,16 +311,16 @@ static LRESULT APIENTRY NewProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 static DWORD WINAPI Initialize(LPVOID lpParam)
 {
 	method::PrintToConsole(L"[提示] 开始初始化");
-	Sleep(521);
-	Sleep(1994);
-	Sleep(618);
+	//Sleep(521);
+	//Sleep(1994);
+	//Sleep(618);
 	// 尝试加载指定DLL
 	method::LoadDll();
 	// 如果OffDistance的数值为1，那么就不修改视距 默认为0
 	int OffDistance = method::GetIntPrivateProfile(L"Config", L"OffDistance", 0);
 	if (OffDistance == 1)
 	{
-		method::PrintToConsole(L"[提示] 已跳过视距修改 Config.OffDistance = 1");
+		method::PrintToConsole(L"[提示] 已跳过视距修改 Config->OffDistance = 1");
 		return 0;
 	}
 	// 获取设定的视距大小并赋值给distanceValue TCHAR buffer[8] 视距在7位数字以内 加上末尾\0空字符所以填8 不需要太多空间
@@ -310,8 +331,8 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
 	float result = wcstof(buffer, &endPtr);
 
 	if (endPtr == buffer || *endPtr != L'\0') {
-		method::PrintToConsole(L"[警告] Config.DistanceValue 配置无效，使用默认值 2250.0");
 		distanceValue = 2250.0f;
+		method::PrintToConsole(L"[警告] Config->DistanceValue 配置无效，使用默认值 2250.0");
 	}
 	else {
 		distanceValue = result;
@@ -333,18 +354,18 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
 	//	method::PrintToConsole(L"[信息] {Config.DistanceValue}数值超出范围: %s", errorMessage.c_str());
 	//	distanceValue = 2250.0;
 	//}
-	
-	
-	
+
+
+
 	// 提示视距值
 	// 等待一下就开始循环寻找客户端窗口句柄
-	Sleep(3344);
+	std::this_thread::sleep_for(std::chrono::milliseconds(1314));
 	while (client.hWnd == NULL)//如果窗口句柄是NULL就继续循环
 	{
 		//寻找窗口句柄
-		client.hWnd = FindWindowW(L"RiotWindowClass", NULL);//"RiotWindowClass","League of Legends (TM) Client"
-		//method::PrintToConsole(L"FindWindowW = %d", client.hWnd);
-		Sleep(1314);
+		client.hWnd = FindWindowW(Client_NAME, nullptr);//"RiotWindowClass","League of Legends (TM) Client"
+		// method::PrintToConsole(L"FindWindowW = %d", client.hWnd);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1314));
 	}
 	// 获取程序ID和句柄
 	client.pid = GetCurrentProcessId();
@@ -357,12 +378,13 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
 	if (client.lpPrevWndFunc == NULL)
 	{
 		//无法接管消息 输出错误结果
-		method::PrintToConsole(L"[错误] SetWindowLong-(错误代码：%d)", GetLastError());
+		method::PrintToConsole(L"[错误] SetWindowLong - (错误代码：%d)", GetLastError());
+		method::PrintToConsole(L"[错误] 无法子类化游戏客户端，快捷键已失效");
 		//return 0;
 	}
 	else
 	{
-		method::PrintToConsole(L"[成功] SetWindowLong-(lpPrevWndFunc: %d)", client.lpPrevWndFunc);
+		method::PrintToConsole(L"[成功] SetWindowLong - %d", client.lpPrevWndFunc);
 	}
 	//注册一个自定义消息并输出消息值
 	//customMsg = RegisterWindowMessageW(L"Kiku");
@@ -371,36 +393,44 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
 	std::pair<DWORD64, DWORD64> addressRange = method::GetModuleAddressRange(GetModuleHandleW(nullptr));
 	client.startAddress = addressRange.first;
 	client.endAddress = addressRange.second;
-	method::PrintToConsole(L"[信息] CLIENT-客户端模块起始地址 = 0x%llX", client.startAddress);
-	method::PrintToConsole(L"[信息] CLIENT-客户端模块结束地址 = 0x%llX", client.endAddress);
+	method::PrintToConsole(L"[信息] 客户端模块起始地址 = 0x%llX", client.startAddress);
+	method::PrintToConsole(L"[信息] 客户端模块结束地址 = 0x%llX", client.endAddress);
+	int manual = method::GetIntPrivateProfile(L"Config", L"manual", 0);
+	if (manual == 1)
+	{
+		method::PrintToConsole(L"[提示] 当前为手动视距修改，泉水中按下CTRL + HOME修改视距");
+		return true;
+	}
+	else
+	{
+		method::PrintToConsole(L"[提示] 当前为自动视距修改，识别到开始时自动修改");
+	}
+
 	// 定位时间地址
 	DWORD64 timeAddress = method::LocateSignature(client.hProcess, TIME_SIGNATURE_CODE, client.startAddress, client.endAddress, 4);
 	if (timeAddress)
 	{
-		method::PrintToConsole(L"[信息] TIME特征码搜索到的地址 = 0x%llX", timeAddress);
+		method::PrintToConsole(L"[信息] 特征码搜索到的时间地址 = 0x%llX", timeAddress);
 		DWORD64 基址, 基址值 = 0;
 		ReadProcessMemory(client.hProcess, LPCVOID(timeAddress), &基址值, 4, 0);
 		//输出时间基址值
-		method::PrintToConsole(L"[信息] TIME基址值 = 0x%llX", 基址值);
+		method::PrintToConsole(L"[信息] 特征定位时间基址 = 0x%llX", 基址值);
 		基址 = timeAddress + 基址值 + 4;//基址的计算结果
-		method::PrintToConsole(L"[信息] TIME计算真正基址的值 = 0x%llX", 基址);
+		method::PrintToConsole(L"[信息] 计算真正时间基址 = 0x%llX", 基址);
 		float times = 0.0;
 		ReadProcessMemory(client.hProcess, LPCVOID(基址), &times, 4, 0);
 		//循环读取时间基址，直到时间不为0
 		while (times <= 0)
 		{
-			Sleep(1314);
 			ReadProcessMemory(client.hProcess, LPCVOID(基址), &times, 4, 0);
-			// method::PrintToConsole(L"[信息] TIME-循环读到的时间 = %f", times);
+			method::PrintToConsole(L"[信息] 循环读到的时间 = %f", times);
+			std::this_thread::sleep_for(std::chrono::milliseconds(1314));
 		}
-
-		method::PrintToConsole(L"[信息] TIME读到的时间 = %f", times);
+		method::PrintToConsole(L"[信息] 当前游戏时间 = %f", times);
 	}
 	else
 	{
-		method::PrintToConsole(L"[警告] TIME特征码没读取到地址，可能特征码已过期");
-		// 依旧尝试修改视距
-		Sleep(2618); 
+		method::PrintToConsole(L"[警告] 特征码没读取到时间地址，可能特征码已过期，可使用手动修改");
 		return false;
 	}
 	// 获取RCX地址
@@ -410,9 +440,155 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
 		return false;
 	}
 	WriteInsightData(distanceValue);
-	// 调用视距函数
-	// Insight();
 	return true;
+}
+
+/**
+ * @brief 定时器回调函数
+ * @param instance 线程池回调实例
+ * @param context 上下文参数
+ * @param timer 线程池定时器
+ * @details 当定时器触发时，关闭定时器并显示消息框
+ */
+static VOID CALLBACK TimerCallback(PTP_CALLBACK_INSTANCE, PVOID, PTP_TIMER)
+{
+	if (g_timer) {
+		CloseThreadpoolTimer(g_timer);
+		g_timer = nullptr;
+	}
+	method::PrintToConsole(L"[提示] 开始初始化");
+	//Sleep(521);
+	//Sleep(1994);
+	//Sleep(618);
+	// 尝试加载指定DLL
+	method::LoadDll();
+	// 如果OffDistance的数值为1，那么就不修改视距 默认为0
+	int OffDistance = method::GetIntPrivateProfile(L"Config", L"OffDistance", 0);
+	if (OffDistance == 1)
+	{
+		method::PrintToConsole(L"[提示] 已跳过视距修改 Config->OffDistance = 1");
+		return;
+	}
+	// 获取设定的视距大小并赋值给distanceValue TCHAR buffer[8] 视距在7位数字以内 加上末尾\0空字符所以填8 不需要太多空间
+	TCHAR buffer[8];
+	method::GetStringPrivateProfile(L"Config", L"DistanceValue", L"2250", buffer, 8);
+	// std::wstring value(buffer);
+	WCHAR* endPtr = nullptr;
+	float result = wcstof(buffer, &endPtr);
+
+	if (endPtr == buffer || *endPtr != L'\0') {
+		distanceValue = 2250.0f;
+		method::PrintToConsole(L"[警告] Config->DistanceValue 配置无效，使用默认值 2250.0");
+	}
+	else {
+		distanceValue = result;
+		method::PrintToConsole(L"[信息] 配置中的视距: %f", distanceValue);
+	}
+	// distanceValue = stof(std::wstring(value));
+	//try {
+	//	// 读取配置中的视距大小转成浮点数
+	//	distanceValue = std::stof(value);
+	//	method::PrintToConsole(L"[信息] 配置中的视距: %f{Config.DistanceValue}", distanceValue);
+	//}
+	//catch (const std::invalid_argument& e) {
+	//	std::wstring errorMessage = std::wstring(e.what(), e.what() + strlen(e.what()));
+	//	method::PrintToConsole(L"[信息] {Config.DistanceValue}是无效的参数: %s", errorMessage.c_str());
+	//	distanceValue = 2250.0;
+	//}
+	//catch (const std::out_of_range& e) {
+	//	std::wstring errorMessage = std::wstring(e.what(), e.what() + strlen(e.what()));
+	//	method::PrintToConsole(L"[信息] {Config.DistanceValue}数值超出范围: %s", errorMessage.c_str());
+	//	distanceValue = 2250.0;
+	//}
+
+
+
+	// 提示视距值
+	// 等待一下就开始循环寻找客户端窗口句柄
+	std::this_thread::sleep_for(std::chrono::milliseconds(1314));
+	while (client.hWnd == NULL)//如果窗口句柄是NULL就继续循环
+	{
+		//寻找窗口句柄
+		client.hWnd = FindWindow(Client_NAME, NULL);
+		//"RiotWindowClass","League of Legends (TM) Client"
+		// method::PrintToConsole(L"FindWindowW = %d", client.hWnd);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1314));
+	}
+	// 获取程序ID和句柄
+	client.pid = GetCurrentProcessId();
+	client.hProcess = GetCurrentProcess();
+	method::PrintToConsole(L"[信息] 窗口句柄: %d", client.hWnd);
+	method::PrintToConsole(L"[信息] 进程ID: %d", client.pid);
+	method::PrintToConsole(L"[信息] 进程句柄: %d", client.hProcess);
+	//子类化窗口 自定义处理消息
+	client.lpPrevWndFunc = (WNDPROC)SetWindowLongPtrW(client.hWnd, GWLP_WNDPROC, (LRESULT)NewProc);
+	if (client.lpPrevWndFunc == NULL)
+	{
+		//无法接管消息 输出错误结果
+		method::PrintToConsole(L"[错误] SetWindowLong - (错误代码：%d)", GetLastError());
+		method::PrintToConsole(L"[错误] 无法子类化游戏客户端，快捷键已失效");
+		//return 0;
+	}
+	else
+	{
+		method::PrintToConsole(L"[成功] SetWindowLong - %d", client.lpPrevWndFunc);
+	}
+	//注册一个自定义消息并输出消息值
+	//customMsg = RegisterWindowMessageW(L"Kiku");
+	//method::PrintToConsole(L"MessageId = %d", customMsg);
+	// 获得模块起始地址和结束地址
+	std::pair<DWORD64, DWORD64> addressRange = method::GetModuleAddressRange(GetModuleHandleW(nullptr));
+	client.startAddress = addressRange.first;
+	client.endAddress = addressRange.second;
+	method::PrintToConsole(L"[信息] 客户端模块起始地址 = 0x%llX", client.startAddress);
+	method::PrintToConsole(L"[信息] 客户端模块结束地址 = 0x%llX", client.endAddress);
+	int manual = method::GetIntPrivateProfile(L"Config", L"manual", 0);
+	if (manual == 1)
+	{
+		method::PrintToConsole(L"[提示] 当前为手动视距修改，泉水中按下CTRL + HOME修改视距");
+		return;
+	}
+	else
+	{
+		method::PrintToConsole(L"[提示] 当前为自动视距修改，识别到开始时自动修改");
+	}
+
+	// 定位时间地址
+	DWORD64 timeAddress = method::LocateSignature(client.hProcess, TIME_SIGNATURE_CODE, client.startAddress, client.endAddress, 4);
+	if (timeAddress)
+	{
+		method::PrintToConsole(L"[信息] 特征码搜索到的时间地址 = 0x%llX", timeAddress);
+		DWORD64 基址, 基址值 = 0;
+		ReadProcessMemory(client.hProcess, LPCVOID(timeAddress), &基址值, 4, 0);
+		//输出时间基址值
+		method::PrintToConsole(L"[信息] 特征定位时间基址 = 0x%llX", 基址值);
+		基址 = timeAddress + 基址值 + 4;//基址的计算结果
+		method::PrintToConsole(L"[信息] 计算真正时间基址 = 0x%llX", 基址);
+		float times = 0.0;
+		ReadProcessMemory(client.hProcess, LPCVOID(基址), &times, 4, 0);
+		//循环读取时间基址，直到时间不为0
+		while (times <= 0)
+		{
+			ReadProcessMemory(client.hProcess, LPCVOID(基址), &times, 4, 0);
+			method::PrintToConsole(L"[信息] 循环读到的时间 = %f", times);
+			std::this_thread::sleep_for(std::chrono::milliseconds(1314));
+		}
+		method::PrintToConsole(L"[信息] 当前游戏时间 = %f", times);
+	}
+	else
+	{
+		method::PrintToConsole(L"[警告] 特征码没读取到时间地址，可能特征码已过期，可使用手动修改");
+		return;
+	}
+	// 获取RCX地址
+	if (!GetRcxAddress())
+	{
+		// 失败则无法继续
+		return;
+	}
+	// 修改视距
+	WriteInsightData(distanceValue);
+	return;
 }
 
 /**
@@ -427,14 +603,14 @@ static DWORD WINAPI Initialize(LPVOID lpParam)
  */
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
 {
-	//禁用DLL_THREAD_ATTACH和DLL_THREAD_DETACH通知，减小程序的工作集大小
-	DisableThreadLibraryCalls(hModule);
-	// 设置控制台输出的字符编码为UTF-8
-	setlocale(LC_ALL, ".utf8");
 	switch (ul_reason_for_call)
 	{
 	case DLL_PROCESS_ATTACH:
 	{
+		// 设置控制台输出的字符编码为UTF-8
+		setlocale(LC_ALL, ".utf8");
+		//禁用DLL_THREAD_ATTACH和DLL_THREAD_DETACH通知，减小程序的工作集大小
+		DisableThreadLibraryCalls(hModule);
 		//从配置文件判断是否需要启动控制台 1 = 开启 0 = 关闭
 		int OpenConsole = method::GetIntPrivateProfile(L"Config", L"OpenConsole", 0);
 		if (OpenConsole == 1)
@@ -443,21 +619,34 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReser
 		}
 		// 开始劫持
 		InitHijack();
-		method::PrintToConsole(L"[成功] 劫持dinput8.dll");
+		method::PrintToConsole(L"[成功] 已经劫持dinput8.dll");
+		// https://learn.microsoft.com/zh-cn/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-createthreadpooltimer
+		// 若要编译使用此函数的应用程序，请将_WIN32_WINNT定义为 0x0600 或更高版本
+		g_timer = CreateThreadpoolTimer(TimerCallback, nullptr, nullptr);
+		if (g_timer)
+		{
+			FILETIME ft{};
+			// 相对时间，单位是100ns 如果为负数，则表示相对于当前时间等待的时间量
+			ULONGLONG delay = (ULONGLONG)(-5210) * 10000;
+			ft.dwHighDateTime = (DWORD)(delay >> 32);
+			ft.dwLowDateTime = (DWORD)(delay & 0xFFFFFFFF);
+			SetThreadpoolTimer(g_timer, &ft, 0, 0);
+		}
+		else
+		{
+			method::PrintToConsole(L"[错误] 创建线程池定时器失败 (错误代码: %d)", GetLastError());
+		}
 		// 启动初始化线程
-		CreateThread(NULL, NULL, Initialize, NULL, NULL, NULL);
+		// CreateThread(NULL, NULL, Initialize, NULL, NULL, NULL);
 		return true;
 	}
 	break;
 	case DLL_PROCESS_DETACH:
 	{
-		// 释放控制台
-		if (hConsole != nullptr)
-		{
-			CloseHandle(hConsole);
-			hConsole = nullptr;
-		}
-		// 释放资源
+		method::PrintToConsole(L"[信息] DLL_PROCESS_DETACH -> DLL卸载，开始清理资源");
+		// 清理资源
+		method::exit();
+		// 解除劫持
 		FreeHijack();
 	}
 	break;

@@ -1,9 +1,8 @@
-// 需要将此文件添加到>>>项目(P)->属性(ALT+F7)->链接器->输入->模块定义文件<<<中(平台选择和编译需一致)
 LIBRARY
 EXPORTS
-DirectInput8Create=Redirect_DirectInput8Create @1
-DllCanUnloadNow=Redirect_DllCanUnloadNow @2
-DllGetClassObject=Redirect_DllGetClassObject @3
-DllRegisterServer=Redirect_DllRegisterServer @4
-DllUnregisterServer=Redirect_DllUnregisterServer @5
-GetdfDIJoystick=Redirect_GetdfDIJoystick @6
+DirectInput8Create=Redirect_DirectInput8Create PRIVATE
+DllCanUnloadNow=Redirect_DllCanUnloadNow PRIVATE
+DllGetClassObject=Redirect_DllGetClassObject PRIVATE
+DllRegisterServer=Redirect_DllRegisterServer PRIVATE
+DllUnregisterServer=Redirect_DllUnregisterServer PRIVATE
+GetdfDIJoystick=Redirect_GetdfDIJoystick PRIVATE

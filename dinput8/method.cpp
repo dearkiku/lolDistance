@@ -2,9 +2,16 @@
 #include <Psapi.h>
 // ===================
 #include "method.h"
+static bool console = false;
 
 void method::RedireceConsole()
 {
+	if (console)
+	{
+		// 避免重复初始化
+		return;
+	}
+
 	// 分配控制台
 	AllocConsole();
 	// 设置控制台输出编码为 UTF-8
@@ -14,6 +21,7 @@ void method::RedireceConsole()
 
 	// 获取标准输出流句柄
 	// HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+	
 	// 将标准输出流句柄重定向到控制台
 	hConsole = CreateFile(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (hConsole != INVALID_HANDLE_VALUE)
@@ -22,12 +30,24 @@ void method::RedireceConsole()
 		FILE* pConsole;
 		freopen_s(&pConsole, "CONOUT$", "w", stdout);
 		freopen_s(&pConsole, "CONOUT$", "w", stderr);
+		// 启用虚拟终端颜色
+		//DWORD consoleMode;
+		//GetConsoleMode(hConsole, &consoleMode);
+		//SetConsoleMode(hConsole, consoleMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+		console = true;
 	}
 }
 
 void method::PrintToConsole(const wchar_t* format, ...)
 {
-	WCHAR buffer[512];
+	if (!console)
+	{
+		return;
+	}
+	// 蓝色
+	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+
+	WCHAR buffer[512]{};
 	WCHAR fullBuffer[512];
 
 	va_list args;
@@ -39,6 +59,9 @@ void method::PrintToConsole(const wchar_t* format, ...)
 	wprintf(L"%s\n", fullBuffer);
 
 	va_end(args);
+	// 恢复为白色
+	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+
 }
 
 std::pair<DWORD64, DWORD64> method::GetModuleAddressRange(HMODULE hModule) {
@@ -56,15 +79,15 @@ std::pair<DWORD64, DWORD64> method::GetModuleAddressRange(HMODULE hModule) {
 	return std::make_pair(0, 0);
 }
 
-BOOL method::CompareArrays(const BYTE* source, const BYTE* target, DWORD size) {
-	for (DWORD i = 0; i < size; ++i) {
+BOOL method::CompareArrays(const BYTE* source, const BYTE* target, size_t size) {
+	for (size_t i = 0; i < size; ++i) {
 		if (source[i] != target[i] && source[i] != 0xFF) return FALSE;
 	}
 	return TRUE;
 }
 
-int method::ConvertStringToByteArray(const std::string& featureCode, unsigned char* outBuffer, int maxSize) {
-	int count = 0;
+size_t method::ConvertStringToByteArray(const std::string& featureCode, unsigned char* outBuffer, size_t maxSize) {
+	size_t count = 0;
 	for (size_t i = 0; i < featureCode.length() && count < maxSize; ++i) {
 		if (featureCode[i] == ' ') {
 			continue;
@@ -83,39 +106,50 @@ int method::ConvertStringToByteArray(const std::string& featureCode, unsigned ch
 }
 
 DWORD64 method::LocateSignature(HANDLE hProcess, const std::string& maskedPattern, DWORD64 start, DWORD64 end, int offset) {
-	const int MAX_PATTERN_SIZE = 256;
-	const int PAGE_SIZE = 4096;
+	// 最大模式长度
+	constexpr size_t MAX_PATTERN_SIZE = 256;
+	// 内存页大小
+	constexpr size_t PAGE_SIZE = 4096;
+	// 缓冲区初始化
 	BYTE page[PAGE_SIZE] = { 0 };
 	BYTE pattern[MAX_PATTERN_SIZE] = { 0 };
-
-	int patternSize = ConvertStringToByteArray(maskedPattern, pattern, MAX_PATTERN_SIZE);
-	if (patternSize <= 0) return 0;
-
+	// 将字符串模式转换为字节数组
+	const size_t patternSize = ConvertStringToByteArray(maskedPattern, pattern, MAX_PATTERN_SIZE);
+	// 检查模式有效性
+	if (patternSize <= 0) 
+	{
+		return 0;
+	}
+	// 逐页搜索内存
 	while (start < end) {
+		// 读取当前内存页
 		ReadProcessMemory(hProcess, (LPCVOID)start, page, PAGE_SIZE, NULL);
-		for (DWORD i = 0; i < PAGE_SIZE - patternSize; ++i) {
+		// 在当前页内匹配字节
+		for (size_t i = 0; std::cmp_less(i, PAGE_SIZE - patternSize); ++i) {
 			if (CompareArrays(pattern, page + i, patternSize)) {
+				// 匹配成功，返回匹配地址+偏移量
 				return start + i + offset;
 			}
 		}
-		start += (PAGE_SIZE - patternSize);
+		// 移动到下一页
+		start += (PAGE_SIZE -patternSize);
 	}
 	return 0;
 }
 
 // 配置文件路径
-std::wstring distanceConfigPath = L".\\distance.ini";
+const WCHAR* distanceConfigPath = L".\\distance.ini";
 
 UINT method::GetIntPrivateProfile(LPCWSTR lpAppName, LPCWSTR lpKeyName, INT nDefault) {
-	return GetPrivateProfileInt(lpAppName, lpKeyName, nDefault, distanceConfigPath.c_str());
+	return GetPrivateProfileInt(lpAppName, lpKeyName, nDefault, distanceConfigPath);
 }
 
 DWORD method::GetStringPrivateProfile(LPCWSTR lpAppName, LPCWSTR lpKeyName, LPCWSTR lpDefault, LPWSTR lpReturnedString, DWORD nSize) {
-	return GetPrivateProfileString(lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize, distanceConfigPath.c_str());
+	return GetPrivateProfileString(lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize, distanceConfigPath);
 }
 
 BOOL method::WriteStringPrivateProfile(LPCWSTR lpAppName, LPCWSTR lpKeyName, LPCWSTR lpString) {
-	return WritePrivateProfileString(lpAppName, lpKeyName, lpString, distanceConfigPath.c_str());
+	return WritePrivateProfileString(lpAppName, lpKeyName, lpString, distanceConfigPath);
 }
 
 // 载入的DLL句柄
@@ -148,5 +182,16 @@ void method::LoadDll()
 		{
 			PrintToConsole(L"[警告] Dll指向的文件不存在，跳过加载");
 		}
+	}
+}
+
+void method::exit() {
+	if (hModule)
+	{
+		FreeLibrary(hModule);
+	}
+	if (console)
+	{
+		FreeConsole();
 	}
 }

@@ -1,3 +1,0 @@
-D:\Users\Administrator\source\repos\dinput8\x64\Release\dinput8.dll
-d:\Users\Administrator\Desktop\dinput8\x64\Release\dinput8.dll
-j:\Users\Administrator\Desktop\dinput8\x64\Release\dinput8.dll

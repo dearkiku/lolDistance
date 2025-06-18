@@ -1,8 +1,0 @@
-﻿  dllmain.cpp
-dllmain.obj : warning LNK4229: 遇到无效的指令“/EXPOTR:DirectInput8Create=C:/Windows/System32/dinput8.DirectInput8Create”；已忽略
-dllmain.obj : warning LNK4229: 遇到无效的指令“/EXPOTR:DllCanUnloadNow=C:/Windows/System32/dinput8.DllCanUnloadNow”；已忽略
-dllmain.obj : warning LNK4229: 遇到无效的指令“/EXPOTR:DllGetClassObject=C:/Windows/System32/dinput8.DllGetClassObject”；已忽略
-dllmain.obj : warning LNK4229: 遇到无效的指令“/EXPOTR:DllRegisterServer=C:/Windows/System32/dinput8.DllRegisterServer”；已忽略
-dllmain.obj : warning LNK4229: 遇到无效的指令“/EXPOTR:DllUnregisterServer=C:/Windows/System32/dinput8.DllUnregisterServer”；已忽略
-dllmain.obj : warning LNK4229: 遇到无效的指令“/EXPOTR:GetdfDIJoystick=C:/Windows/System32/dinput8.GetdfDIJoystick”；已忽略
-  dinput8.vcxproj -> D:\Users\Administrator\source\repos\dinput8\x64\Debug\dinput8.dll

@@ -1,4 +1,4 @@
-## 最新说明：因为软件被别人放到其它平台出售，所以就停止更新这个版本的视距了，不过有能力的依旧可以自行更新，不想自己更新的加群会有更新版本的视距
+## 最新说明：因为软件被别人放到其它平台出售，所以就停止更新这个版本的视距了，不过有能力的依旧可以自行更新，不想自己更新的[加群](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=Okd2GD-](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=Okd2GD-paHivHmPCH3HejuxztqUYlscU&authKey=l0grOm6QHx89Lc09DnpWrQbhFkdW2fxKVxJMY7RvvBX%2BGnxHvidgohivYryzO3Gu&noverify=0&group_code=628543673))会有一直在更新的视距，目前视距和切牌合并到一起了，依旧可以单独使用视距，自动使用特征码更新(更新不包括卡牌大师的切牌功能，因为我不知道技能偏移的特征码，如果有知道的可以反馈给我)
 # 简介
 - 修改英雄联盟的视野范围！可实现无限视距  
 - 纯C++代码 完全开源，不必担心有恶意行为！
